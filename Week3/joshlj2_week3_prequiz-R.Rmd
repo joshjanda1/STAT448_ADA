@@ -1,0 +1,88 @@
+---
+title: "Week 3 Practice Problems"
+author: "Josh Janda"
+date: "2/6/2020"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+```
+```{r}
+ccso = read_csv("https://uofi.box.com/shared/static/9elozjsg99bgcb7gb546wlfr3r2gc9b7.csv")
+ccso$`Booking Date/Time` = as.POSIXct(ccso$`Booking Date/Time`, format = '%m/%d/%y %H:%M:%S')
+ccso$`Release Date/Time` = as.POSIXct(ccso$`Release Date/Time`, format = '%m/%d/%y %H:%M:%S')
+```
+
+```{r}
+#problem 2
+ccso2 = ccso %>% mutate(hoursserved = (`Release Date/Time` - `Booking Date/Time`) / 3600,
+                        yearsserved = (`Release Date/Time` - `Booking Date/Time`) / 3.154e+7) %>%
+                 filter(hoursserved > 24)
+
+ccso2 %>% select(hoursserved, `EMPLOYMENT STATUS`, RACE, SEX, `RELEASED REASON`) %>% head(10)
+```
+
+```{r}
+#problem 3
+ccso3 = ccso2 %>% mutate(race2 = ifelse(RACE == "Black",
+                                        "Black", "Non-Black")) %>%
+                  filter(`EMPLOYMENT STATUS` %in% c("Student", "Unemployed")) %>%
+                  select(race2,
+                         employment = `EMPLOYMENT STATUS`, 
+                         age = `Age at Arrest`,
+                         days = `Days in Jail`) %>%
+                  drop_na()
+
+ggplot(data = ccso3, aes(x = days, y = age)) +
+  geom_point(color = "blue") +
+  facet_grid(factor(race2) ~ factor(employment)) +
+  labs(x = "Days in Jail", y = "Age at Arrest",
+       title = "A Further Look at Days spent in Jail versus Age,\n Between Race and Employment Status") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+Looking at the scatter plots above, I can see that those that are students versus unemployed are in jail much less frequently. This is seen through the point density of the scatter plots. Those that are students are also in jail for much less time than those who are unemployed. When comparing between Black and Non-Black people, there seems to be more cased of Black's in jail judging by point density. Those who are black also seem to be in jail longer than those who are non-black. The most frequent observations are those who are unemployed and black.
+
+Overall, unemployed people have a much higher chance of being in jail as well as typically having a higher number of days spent in jail. It also can be said that Black's are in jail more frequently and also for more days than those who are not black.
+
+```{r}
+
+ccso4 = ccso %>% filter(RACE == "Black", CITY %in% c("CHAMPAIGN", "URBANA")) %>%
+                 mutate(hoursserved = (`Release Date/Time` - `Booking Date/Time`) / 3600,
+                        at_least_one_week = as.factor(ifelse(hoursserved >= 168,
+                                                   1, 0)))
+
+booking_black_jail_vs_students = c(
+  
+  at_least_one_week = nrow(ccso4 %>% filter(at_least_one_week == 1)) / nrow(ccso4),
+  non_students = nrow(ccso4 %>% filter(`EMPLOYMENT STATUS` != "Student")) / nrow(ccso4)
+
+)
+
+booking_black_barplot = barplot(booking_black_jail_vs_students, main = "Booking Rate of Black People in Champaign County")
+
+par(mai=c(0,1,1,1))
+barplot(booking_black_jail_vs_students,col="white", main="Champaign County Booking Rate of Black People",axes = FALSE, border=NA)
+text(booking_black_barplot, booking_black_jail_vs_students,
+     label=paste0(round(booking_black_jail_vs_students,2)*100,"%",""), pos=1, cex=4)
+text(booking_black_barplot, booking_black_jail_vs_students-0.20, label=c("At Least 1 Week","Non-Student"), pos=1, cex=2)
+```
+
+
+The plot above shows the booking rate of black people in Champaign County, Illinois. We can see that 33% of black people who are booked into jail spend at least 1 week there, which is quite high. We can also see that 93% of those who are black and booked into jail are non-students. This tells us that 7% of black people are actually students, which is quite low and expected.
+
+```{r}
+par(mfrow = c(1, 2))
+
+ccso_males = ccso %>% filter(SEX == "Male") %>% select(`Days in Jail`)
+ccso_females = ccso %>% filter(SEX == "Female") %>% select(`Days in Jail`)
+
+qqnorm(ccso_males$`Days in Jail`, main = "Q-Q Plot for Days in Jail, Males")
+qqline(ccso_males$`Days in Jail`, col = "red", lwd = 2, lty = 2)
+qqnorm(ccso_females$`Days in Jail`, main = "Q-Q Plot for Days in Jail, Females")
+qqline(ccso_females$`Days in Jail`, col = "red", lwd = 2, lty = 2)
+```
+
+
+Looking at the Q-Q Plot's above for both female and male of the daysinjail variable, I can see that these distributions are not normal. The Q-Q Plot's are not linear, meaning they are not created from a normal distribution.
