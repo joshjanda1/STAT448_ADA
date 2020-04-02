@@ -1,0 +1,367 @@
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Station Quiz - Week 10
+
+Grading Rubric (per question):  
+2 points if complete and correct  
+1 point if incomplete or incorrect  
+0 points if no attempt made  
+
+The following questions should be completed by yourself as an individual today. You are your own station. Thus you are the one who submits (commits/pushes) the answers to the quiz in their repo, i.e., the **designated submitter**. *You have until 11:59 PM Friday March 27, 2020 to complete these questions. Do not change anything in this file above the line.*
+
+***
+
+**#0** Pull this ipynb file from your respective **assignments_section_sp20** repo; either **assignments_section2_sp20** or **assignments_section3_sp20**. Copy it into your personal repo to begin answering the questions, but rename the file as station_quiz_week_10_Netid.R with your Netid. (GitHub)
+
+***
+
+**#1** Using Markdown syntax (not R syntax), make a bulleted list that has your first name in italic font in one bullet and your last name in bold font in another bullet. (Markdown)  
+
+- *Josh*
+- **Janda**
+
+***
+
+**#2** Using the visualization below, describe what's happening in the plot. (Data Visualization, Markdown)
+
+![](https://static01.nyt.com/images/2020/03/19/learning/ProtectiveMeasuresGraphLN/ProtectiveMeasuresGraphLN-superJumbo-v3.jpg?quality=90&auto=webp)
+
+The plot is visualizing the number of cases against the time since the first case. Two curves are shown, the first curve being shown is the number of cases given no protective measures are taken. The second curve shown is the number of cases given protective measures are taken. There is a constant line showing the total healthcare system capacity. Taking protective measures, we are able to stay under the healthcare system capacity and therefore limit the number of deaths. Not taking protective measures, we will overwhelm the healthcare system capacity and lead to more deaths.
+
+***
+
+**#3** Import the powerlifting dataset (thanks to David Dalpiaz!) with the link https://uofi.box.com/shared/static/72tsz9guup6p31wc50zjw7y3lkvutqr5.csv. After importing, name the powerlifting data as **lift**. (R, Accessing and Importing Data) 
+
+```{r}
+library(tidyverse)
+library(knitr)
+library(GGally)
+```
+
+```{r}
+lift = read_csv('https://uofi.box.com/shared/static/72tsz9guup6p31wc50zjw7y3lkvutqr5.csv')
+
+colnames(lift) = tolower(colnames(lift))
+```
+
+***
+
+**#4** Do the following data wrangling steps:
+  - keep the following variables: Name, Sex, Event, Equipment, Age, AgeClass, BodyweightKg, WeightClassKg, Best3SquatKg, Best3BenchKg, Best3DeadliftKg, TotalKg, Wilks, IPFPoints
+  - filter to keep female powerlifters in AgeClass 24-34 with SBD as the Event 
+  - remove NA values
+  - rename the data object as **power**. (R, Accessing and Importing Data, Data Wrangling)
+
+*There should be 54589 observations in the resulting* **power** *dataset.*
+
+```{r}
+power = lift %>%
+  select(name, sex, event, equipment, age, ageclass, bodyweightkg, weightclasskg,
+         best3squatkg, best3benchkg, best3deadliftkg, totalkg, wilks, ipfpoints) %>%
+  filter(sex %in% c('F'),
+         ageclass %in% c('24-34'),
+         event %in% c('SBD')) %>%
+  drop_na()
+```
+
+Total observations in **Power**: `r nrow(power)`
+
+***
+
+**#5** Create a new data set called **powerlbs** which is a copy of **power** but has converted the Kg variables of BodyweightKg, Best3SquatKg, Best3BenchKg, Best3DeadliftKg, and TotalKg to pounds (lb). Be sure to replace the "Kg" in the column names to be "Lb". (R, Data Wrangling)
+
+```{r}
+kg_to_lbs = function(kg) {
+  
+  kg * 2.20462
+  
+}
+
+powerlbs = power %>%
+  mutate(bodyweightlb = kg_to_lbs(bodyweightkg),
+         best3squatlb = kg_to_lbs(best3squatkg),
+         best3benchlb = kg_to_lbs(best3benchkg),
+         best3deadliftlb = kg_to_lbs(best3deadliftkg),
+         totallb = kg_to_lbs(totalkg)) %>%
+  select(-c(bodyweightkg, best3squatkg, best3benchkg,
+            best3deadliftkg, totalkg))
+```
+
+***
+
+**#6** Remove TotalLb due to multicollinearity. In addition, I am claiming that there are 10 (1 now) outliers in the data from **Problem 5**. Determine those outliers (using the three rules/identifiers in the notes) and remove them from the dataset. (R, Cluster Analysis)
+
+```{r}
+powerlbs = powerlbs %>% select(-totallb)
+numeric_powerlbs = powerlbs %>% select_if(is.numeric) %>% select(-age)
+
+##wilks
+#3 sigma rule
+mn_wilks = mean(numeric_powerlbs$wilks)
+sg_wilks = sd(numeric_powerlbs$wilks)
+tsr_wilks = which(abs(numeric_powerlbs$wilks-mn_wilks) > 3*sg_wilks)
+#boxplot rule
+q1 = as.vector(quantile(numeric_powerlbs$wilks, 1/4))
+q3 = as.vector(quantile(numeric_powerlbs$wilks, 3/4))
+iqr = as.vector(q3-q1)
+lwr_wilks = which(numeric_powerlbs$wilks < q1-1.5*iqr)
+upr_wilks = which(numeric_powerlbs$wilks > q3+1.5*iqr)
+#hampel identifier
+md_wilks = median(numeric_powerlbs$wilks)
+sg_wilks = 1.4826*(median(abs(numeric_powerlbs$wilks - md_wilks)))
+hi_wilks = which(abs(numeric_powerlbs$wilks - md_wilks) > 3*sg_wilks)
+
+##ipfpoints
+#3 sigma rule
+mn_ipfpoints = mean(numeric_powerlbs$ipfpoints)
+sg_ipfpoints = sd(numeric_powerlbs$ipfpoints)
+tsr_ipfpoints = which(abs(numeric_powerlbs$ipfpoints-mn_ipfpoints) > 3*sg_ipfpoints)
+#boxplot rule
+q1 = as.vector(quantile(numeric_powerlbs$ipfpoints, 1/4))
+q3 = as.vector(quantile(numeric_powerlbs$ipfpoints, 3/4))
+iqr = as.vector(q3-q1)
+lwr_ipfpoints = which(numeric_powerlbs$ipfpoints < q1-1.5*iqr)
+upr_ipfpoints = which(numeric_powerlbs$ipfpoints > q3+1.5*iqr)
+#hampel identifier
+md_ipfpoints = median(numeric_powerlbs$ipfpoints)
+sg_ipfpoints = 1.4826*(median(abs(numeric_powerlbs$ipfpoints - md_ipfpoints)))
+hi_ipfpoints = which(abs(numeric_powerlbs$ipfpoints - md_ipfpoints) > 3*sg_ipfpoints)
+
+##bodyweightlb
+#3 sigma rule
+mn_bodyweightlb = mean(numeric_powerlbs$bodyweightlb)
+sg_bodyweightlb = sd(numeric_powerlbs$bodyweightlb)
+tsr_bodyweightlb = which(abs(numeric_powerlbs$bodyweightlb-mn_bodyweightlb) > 3*sg_bodyweightlb)
+#boxplot rule
+q1 = as.vector(quantile(numeric_powerlbs$bodyweightlb, 1/4))
+q3 = as.vector(quantile(numeric_powerlbs$bodyweightlb, 3/4))
+iqr = as.vector(q3-q1)
+lwr_bodyweightlb = which(numeric_powerlbs$bodyweightlb < q1-1.5*iqr)
+upr_bodyweightlb = which(numeric_powerlbs$bodyweightlb > q3+1.5*iqr)
+#hampel identifier
+md_bodyweightlb = median(numeric_powerlbs$bodyweightlb)
+sg_bodyweightlb = 1.4826*(median(abs(numeric_powerlbs$bodyweightlb - md_bodyweightlb)))
+hi_bodyweightlb = which(abs(numeric_powerlbs$bodyweightlb - md_bodyweightlb) > 3*sg_bodyweightlb)
+
+##best3squatlb
+#3 sigma rule
+mn_best3squatlb = mean(numeric_powerlbs$best3squatlb)
+sg_best3squatlb = sd(numeric_powerlbs$best3squatlb)
+tsr_best3squatlb = which(abs(numeric_powerlbs$best3squatlb-mn_best3squatlb) > 3*sg_best3squatlb)
+#boxplot rule
+q1 = as.vector(quantile(numeric_powerlbs$best3squatlb, 1/4))
+q3 = as.vector(quantile(numeric_powerlbs$best3squatlb, 3/4))
+iqr = as.vector(q3-q1)
+lwr_best3squatlb = which(numeric_powerlbs$best3squatlb < q1-1.5*iqr)
+upr_best3squatlb = which(numeric_powerlbs$best3squatlb > q3+1.5*iqr)
+#hampel identifier
+md_best3squatlb = median(numeric_powerlbs$best3squatlb)
+sg_best3squatlb = 1.4826*(median(abs(numeric_powerlbs$best3squatlb - md_best3squatlb)))
+hi_best3squatlb = which(abs(numeric_powerlbs$best3squatlb - md_best3squatlb) > 3*sg_best3squatlb)
+
+##best3benchlb
+#3 sigma rule
+mn_best3benchlb = mean(numeric_powerlbs$best3benchlb)
+sg_best3benchlb = sd(numeric_powerlbs$best3benchlb)
+tsr_best3benchlb = which(abs(numeric_powerlbs$best3benchlb-mn_best3benchlb) > 3*sg_best3benchlb)
+#boxplot rule
+q1 = as.vector(quantile(numeric_powerlbs$best3benchlb, 1/4))
+q3 = as.vector(quantile(numeric_powerlbs$best3benchlb, 3/4))
+iqr = as.vector(q3-q1)
+lwr_best3benchlb = which(numeric_powerlbs$best3benchlb < q1-1.5*iqr)
+upr_best3benchlb = which(numeric_powerlbs$best3benchlb > q3+1.5*iqr)
+#hampel identifier
+md_best3benchlb = median(numeric_powerlbs$best3benchlb)
+sg_best3benchlb = 1.4826*(median(abs(numeric_powerlbs$best3benchlb - md_best3benchlb)))
+hi_best3benchlb = which(abs(numeric_powerlbs$best3benchlb - md_best3benchlb) > 3*sg_best3benchlb)
+
+##best3deadliftlb
+#3 sigma rule
+mn_best3deadliftlb = mean(numeric_powerlbs$best3deadliftlb)
+sg_best3deadliftlb = sd(numeric_powerlbs$best3deadliftlb)
+tsr_best3deadliftlb = which(abs(numeric_powerlbs$best3deadliftlb-mn_best3deadliftlb) > 3*sg_best3deadliftlb)
+#boxplot rule
+q1 = as.vector(quantile(numeric_powerlbs$best3deadliftlb, 1/4))
+q3 = as.vector(quantile(numeric_powerlbs$best3deadliftlb, 3/4))
+iqr = as.vector(q3-q1)
+lwr_best3deadliftlb = which(numeric_powerlbs$best3deadliftlb < q1-1.5*iqr)
+upr_best3deadliftlb = which(numeric_powerlbs$best3deadliftlb > q3+1.5*iqr)
+#hampel identifier
+md_best3deadliftlb = median(numeric_powerlbs$best3deadliftlb)
+sg_best3deadliftlb = 1.4826*(median(abs(numeric_powerlbs$best3deadliftlb - md_best3deadliftlb)))
+hi_best3deadliftlb = which(abs(numeric_powerlbs$best3deadliftlb - md_best3deadliftlb) > 3*sg_best3deadliftlb)
+
+outliers = data.frame(Wilks = c(length(tsr_wilks), length(lwr_wilks), length(upr_wilks), length(hi_wilks)),
+  IpfPoints = c(length(tsr_ipfpoints), length(lwr_ipfpoints), length(upr_ipfpoints), length(hi_ipfpoints)),
+  BodyWeightLb = c(length(tsr_bodyweightlb), length(lwr_bodyweightlb), length(upr_bodyweightlb), length(hi_bodyweightlb)),
+  Best3SquatLb = c(length(tsr_best3squatlb), length(lwr_best3squatlb), length(upr_best3squatlb), length(hi_best3squatlb)),
+  Best3BenchLb = c(length(tsr_best3benchlb), length(lwr_best3benchlb), length(upr_best3benchlb), length(hi_best3benchlb)),
+  Best3DeadliftLb = c(length(tsr_best3deadliftlb), length(lwr_best3deadliftlb), length(upr_best3deadliftlb), length(hi_best3deadliftlb)))
+row.names(outliers) = c('3Sigma', 'LwrBoxPlot', 'UprBoxPlot', 'Hampel')
+kable(outliers) 
+```
+
+Looking at the output above, we see that all variables have a good amount of observations that can be considered outliers. I do not want to look at the lower box plot observations, as there are very few that can be considered outliers. I will drop any outliers that intersect between all variables.
+
+```{r}
+Reduce(intersect, list(tsr_wilks, upr_wilks, hi_wilks,
+                       tsr_ipfpoints, upr_ipfpoints, hi_ipfpoints,
+                       tsr_bodyweightlb, upr_bodyweightlb, hi_bodyweightlb,
+                       tsr_best3squatlb, upr_best3squatlb, hi_best3squatlb,
+                       tsr_best3benchlb, upr_best3benchlb, hi_best3benchlb,
+                       tsr_best3deadliftlb, upr_best3deadliftlb, hi_best3deadliftlb))
+```
+
+We see that observation **11005** is considered an outlier between all variables. Let's remove this observation.
+
+```{r}
+powerlbs[11003:11007, ]
+```
+
+
+```{r}
+powerlbs_ol_rm = powerlbs %>% slice(-11005) # removes observation #11005 (April Mathis)
+
+powerlbs_ol_rm[11003:11007, ]
+```
+
+We see that April Mathis is now removed.
+
+***
+
+**#7** Use the `set.seed` random number generator (where the seed number is 448) to select a random sample size of 100 observations of the resulting dataset (after removing the 10 outliers) in **Problem 6**. Then, standardize the continuous variables of this random subset. (R, Data Descriptives, Cluster Analysis)
+
+```{r}
+set.seed(448)
+
+power_sample = powerlbs_ol_rm %>% sample_n(100)
+power_sample_num = power_sample %>% select_if(is.numeric) %>% select(-age)
+
+power_sample_scaled = as.data.frame(scale(power_sample_num))
+```
+
+***
+
+**#8** Use k-means clustering and select 2 clusters. Show the cluster attributes in the form of both 
+
+a) a scatter plot matrix of the 6 continuous variables
+
+b) tables showing the mean and median of these 6 variables.
+
+(R, Cluster Analysis, Data Visualization, Data Descriptives, Markdown)
+
+```{r}
+k_cluster = kmeans(power_sample_scaled, centers=2)$cluster
+
+power_k = power_sample_scaled %>% mutate(k_cluster)
+```
+
+Cluster Sizes:
+
+- Cluster 1: `r power_k %>% filter(k_cluster %in% c(1)) %>% nrow()`
+- Cluster 2: `r power_k %>% filter(k_cluster %in% c(2)) %>% nrow()`
+
+```{r}
+group = NA
+group[power_k$k_cluster == 1] = 1
+group[power_k$k_cluster == 2] = 2
+
+pairs(power_k[1:6],
+      pch = c(16, 18)[group],
+      col = c('salmon', 'turquoise')[group],
+      oma = c(3, 3, 3, 15))
+par(xpd=TRUE)
+legend(.85, .7, fill = c('salmon', 'turquoise'), legend = c('Cluster 1', 'Cluster 2'), ncol=1)
+```
+
+```{r}
+summarise(group_by(power_k, k_cluster),
+          clustersize = length(wilks),
+          mean_wilks = mean(wilks), median_wilks = median(wilks),
+          mean_wilks = mean(ipfpoints), median_ipfpoints = median(ipfpoints),
+          mean_bodyweightlb = mean(bodyweightlb), median_bodyweightlb = median(bodyweightlb),
+          mean_best3squatlb = mean(best3squatlb), median_best3squatlb = median(best3squatlb),
+          mean_best3benchlb = mean(best3benchlb), median_best3benchlb = median(best3benchlb),
+          mean_best3deadliftlb = mean(best3deadliftlb), median_best3deadliftlb = median(best3deadliftlb)) -> k_means_summary
+
+k_means_summary = as.data.frame(k_means_summary) %>% select(-k_cluster)
+k_means_summary = as.data.frame(t(k_means_summary))
+colnames(k_means_summary) = c('Cluster1', 'Cluster2')
+kable(k_means_summary)
+```
+
+***
+
+**#9** Use hierarchical clustering with single linkage and select 2 clusters. Show the cluster attributes in the form of both
+
+a) a scatter plot matrix of the 6 continuous variables
+
+b) tables showing the mean and median of these 6 variables.
+
+(R, Cluster Analysis, Data Visualization, Data Descriptives, Markdown)
+
+```{r}
+dist_mtx =  dist(power_sample_scaled, method = "euclidean")
+power_hclust =  hclust(dist_mtx, method="single")
+
+hcls = cutree(power_hclust, k = 2)
+
+power_hcls = power_sample_scaled %>% mutate(hcls)
+```
+
+Cluster Sizes:
+
+- Cluster 1: `r power_hcls %>% filter(hcls %in% c(1)) %>% nrow()`
+- Cluster 2: `r power_k %>% filter(hcls %in% c(2)) %>% nrow()`
+
+```{r}
+group = NA
+group[power_hcls$hcls == 1] = 1
+group[power_hcls$hcls == 2] = 2
+
+pairs(power_hcls[1:6],
+      pch = c(16, 18)[group],
+      col = c('salmon', 'turquoise')[group],
+      oma = c(3, 3, 3, 15))
+par(xpd=TRUE)
+legend(.85, .7, fill = c('salmon', 'turquoise'), legend = c('Cluster 1', 'Cluster 2'), ncol=1)
+```
+
+```{r}
+summarise(group_by(power_hcls, hcls),
+          clustersize = length(wilks),
+          mean_wilks = mean(wilks), median_wilks = median(wilks),
+          mean_wilks = mean(ipfpoints), median_ipfpoints = median(ipfpoints),
+          mean_bodyweightlb = mean(bodyweightlb), median_bodyweightlb = median(bodyweightlb),
+          mean_best3squatlb = mean(best3squatlb), median_best3squatlb = median(best3squatlb),
+          mean_best3benchlb = mean(best3benchlb), median_best3benchlb = median(best3benchlb),
+          mean_best3deadliftlb = mean(best3deadliftlb), median_best3deadliftlb = median(best3deadliftlb)) -> hcls_summary
+
+hcls_summary = as.data.frame(hcls_summary) %>% select(-hcls)
+hcls_summary = as.data.frame(t(hcls_summary))
+colnames(hcls_summary) = c('Cluster1', 'Cluster2')
+kable(hcls_summary)
+```
+
+***
+
+**#10** Are the clusters the same for hierarchical clustering and k-means clustering? Describe the cluster attributes in the 2 clusters and any interesting features/attributes among the clusters - for both hierarchical and k-means clustering. (R, Cluster Analysis, Data Visualization, Data Descriptives, Markdown)
+
+Looking at the outputs above, the clusters are definitely not the same for hierarchical clustering and k-means clustering. These methods are two different algorithms, so it makes sense to not get the same cluster outputs.
+
+For K-Means clustering, two interesting features/attributes are:
+
+- We can see in the summary statistics as well as scatter matrix that cluster one contains the lower values of each of the variables. For all lifts, as well as scores, cluster one contains the observations that have a lower average and median lift. Cluster two contains the observations whose lifts are much higher (shown by mean and median). This tells me that these clusters can be described as grouping by weight class (body weight) and then by overall strength.
+- There does not seem to be much overlap between the clusters, and the observations between clusters seem to be linearly correlated. The clusters separate the observations into groups, but keep the linear association between variables.
+
+For Hierachical clustering, two interesting features/attributes are:
+
+- Compared to K-Means clustering, using only two clusters for this algorithm results in much worse grouping performance. Cluster 1 contains 99 of the observations while cluster 2 contains only 1 of the observation. This tells me that this observation can be seen as a potential influencer as it creates a separate group. Using the summary statistics, this observation seems to contain the strongest lifts (excluding deadlift), and highest body weight. Potentially using more than 2 clusters can remedy this issue.
+- For some reason, this lone observation in cluster 2 seems to only perform worse in the deadlift. This possibly suggests some sort of limiting factor for this lifter that allows her to perform well in all other lifts outside of the deadlift. It also possibly suggests a misrecording of this lift for the observation. This observation also seems to not maintain the linear association between variables.
+
+***
+
+**#00** The **designated submitter** should commit and push the file to their repo with the commit message "All Done".

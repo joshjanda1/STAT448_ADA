@@ -1,0 +1,221 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Station Quiz - Week 11
+
+Grading Rubric (per question):  
+2 points if complete and correct  
+1 point if incomplete or incorrect  
+0 points if no attempt made  
+
+The following questions should be completed by yourself as an individual today. You are your own station. Thus you are the one who submits (commits/pushes) the answers to the quiz in their repo, i.e., the **designated submitter**. *You have until 11:59 PM Friday April 3, 2020 to complete these questions. Do not change anything in this file above the line.*
+
+***
+
+**#0** Pull this ipynb file from your respective **assignments_section_sp20** repo; either **assignments_section2_sp20** or **assignments_section3_sp20**. Copy it into your personal repo to begin answering the questions, but rename the file as station_quiz_week_11_Netid.R with your Netid. (GitHub)
+
+***
+
+**#1** Using Markdown syntax (not R syntax), make a bulleted list that has your first name in italic font in one bullet and your last name in bold font in another bullet. (Markdown)  
+
+- *Josh*
+- **Janda**
+
+***
+
+**#2** Using the visualization below, describe what's happening in the plot. (Data Visualization, Markdown)
+
+![](https://static01.nyt.com/images/2020/03/26/learning/CoronavirusTransmissionGraphLN/CoronavirusTransmissionGraphLN-superJumbo.png?quality=90&auto=webp)
+
+In this plot, we can see how the chain of transmission for coronavirus works between the use of social distancing and not social distancing.
+
+Without the use of social distancing, we can see how just one infected person can effect another, who can affect another, and so on until a mass amount of people are infected.
+
+With the use of social distancing, we can see how that although some people may still end up infected (spouses, children, etc..), we can avoid a large amount of infections due to avoidance in unecessary social contact.
+
+***
+
+**#3** I've created a subset of the CORD-19 dataset with the link https://uofi.box.com/shared/static/0gm00sxp6fka75lwdsont94p8t9jdm6a.csv. After importing, name the data as **cordpapers** and nename the first column as "paper_id" and the second column as "paper_text" (R, Accessing and Importing Data) 
+
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+library(tm)
+library(qdap)
+library(knitr)
+library(wordcloud)
+library(dendextend)
+library(circlize)
+```
+
+
+```{r prob3}
+cordpapers = read_csv("https://uofi.box.com/shared/static/0gm00sxp6fka75lwdsont94p8t9jdm6a.csv")
+names(cordpapers) = c('paper_id', 'paper_text')
+```
+
+***
+
+**#4** Check the following statistics on the cordpapers data:
+  - number of characters for each paper
+  - mean number of characters
+  - median number of characters
+  - the largest number of characters and its paper_id
+  - the smallest number of characters and its paper_id. (R, Accessing and Importing Data, Data Wrangling)
+
+```{r prob4}
+total_chars = cordpapers %>%
+  mutate(total_chars = str_count(paper_text)) %>%
+  select(paper_id, total_chars)
+total_chars
+```
+
+Output above contains the paper id and its total number of characters in the text.
+
+```{r}
+char_stats = data.frame(mean_chars = mean(total_chars$total_chars),
+                        median_chars = median(total_chars$total_chars))
+char_stats
+```
+
+Output above contains the mean and median number of characters between papers.
+
+```{r}
+total_chars[which.max(total_chars$total_chars), ]
+```
+
+Output above contains the paper id with the largest number of characters.
+
+```{r}
+total_chars[which.min(total_chars$total_chars), ]
+```
+
+Output above contains the paper id with the smallest number of characters.
+
+***
+
+**#5** Collect the text and place it into a (volatile) corpus called **cordppc** where the new data frame column names are doc_id and text. (R, Data Wrangling, Text Analysis)
+
+```{r prob5}
+cordppc = VCorpus(DataframeSource(select(cordpapers, doc_id = paper_id, text = paper_text)))
+```
+
+***
+
+**#6** Using the corpus from **#5**, do the following pre-processing steps for the corpus and name the resulting corpus as **cordcorpus**
+
+  - Set all words to lowercase  
+  - Remove stopwords  
+  - Remove punctuation and other symbols  
+  - Remove unnecessary whitespace  
+  - Remove numbers. (R, Data Wrangling, Text Analysis)
+
+```{r prob6}
+trytolower = function(vcorpus) {
+  
+  y = NA
+  # tryCatch error
+  try_error = tryCatch(tolower(vcorpus), error = function(e) e)
+  # if not an error
+  if (!inherits(try_error, 'error'))
+  y = tolower(vcorpus)
+  return(y)
+  
+}
+
+clean_text = function(vcorpus) {
+  
+  corpus = tm_map(vcorpus, content_transformer(trytolower))
+  corpus = tm_map(corpus, removeWords, stopwords('english'))
+  corpus = tm_map(corpus, removePunctuation)
+  corpus = tm_map(corpus, stripWhitespace)
+  corpus = tm_map(corpus, removeNumbers)
+  corpus
+  
+}
+
+cordcorpus = clean_text(cordppc)
+```
+
+***
+
+**#7** Using the **cordcorpus** in **#6**, create a bar plot that shows the 30 most frequent words (unigrams) using the weightTf weighting argument. Be sure to use the visual design principles to make this plot look de-cluttered and red-green colorblind-sensitive. (R, Text Analysis, Data Visualization)
+
+```{r prob7}
+tdm = TermDocumentMatrix(cordcorpus, control=list(weighting=weightTf))
+tdm_paper_txt = as.matrix(tdm)
+
+word_freq = data.frame(words=names(sort(rowSums(tdm_paper_txt),decreasing = TRUE)),
+                       freqs=sort(rowSums(tdm_paper_txt),decreasing = TRUE), row.names = NULL)
+
+ggplot(word_freq[1:30,], mapping = aes(x = reorder(words, freqs), y = freqs)) +
+  geom_bar(stat= "identity", fill=rgb(0/255,191/255,196/255)) +
+  geom_text(aes(label = freqs), hjust = 1.1, vjust = .3, size = 3) +
+  coord_flip() +
+  scale_colour_hue() +
+  labs(x= "Word", y = 'Frequency',
+       title = "30 Most Frequent Words (COVID-19 Paper Bodies)") +
+  theme(panel.background = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.ticks.y = element_blank(),
+        plot.title = element_text(hjust = 0.5))
+```
+
+***
+
+**#8** Using the **cordcorpus** in **#6**, create a word cloud that shows the 30 most frequent words (unigrams) using the weightTf weighting argument. Be sure to use the visual design principles to make this plot look de-cluttered and red-green colorblind-sensitive.  (R, Text Analysis, Data Visualization)
+
+```{r prob8}
+wordcloud(word_freq$words,word_freq$freqs, min.freq = 1,
+          max.words = 30, colors = blues9)
+```
+
+***
+
+**#9** Using the **cordcorpus** in **#6**, create a single dendrogram that shows 3 clusters of important words (less than 50 words controlling for sparsity) using complete linkage. Be sure to use the visual design principles to make this plot look de-cluttered and red-green colorblind-sensitive.  (R, Text Analysis, Data Visualization)
+
+```{r prob9}
+tdm2 = removeSparseTerms(tdm, sparse=0.25) # keeps 46 terms
+
+hc = hclust(dist(tdm2, method="euclidean"), method="complete")
+
+hcd = as.dendrogram(hc)
+#clusMember <- cutree(hc,4) #choosing 4 clusters
+hcd = color_labels(hcd, 3,
+                   col = c('lightskyblue3', 'turquoise', 'mediumblue'))
+hcd = color_branches(hcd, 3, col = c('lightskyblue3', 'turquoise', 'mediumblue'))
+
+plot(hcd, main = "Body Text - COVID-19 Research Papers", type = "triangle", yaxt='n')
+```
+
+***
+
+**#10** Provide an interpretation for each of the data visualizations in problems **#7, #8, and #9**. What kind of meaning can we gain from these visualizations? Any interesting occur in these visualizations? (R, Text Analysis, Markdown)
+
+For the visualization in **#7**, the plot tells us the top 30 most frequent words from the papers in the subset of the covid-19 dataset after text cleaning. Using a flipped bar plot, we are easily able to read each word and its associated frequency through its label. With this visualization, we can see which words are most common between each paper which can give us an insight of the similarities between the paper to draw conclusion. The most frequent word in the papers is *travelers*, which may be interpreted that travelers impose the largest risk of transmission of the virus due to it's common occurence between research papers.
+
+Overall, with this visualization we can quickly understand similarities between papers and roughly get an idea of their topics.
+
+For the visualization in **#8**, the plot conveys the same information as **#7** but in a different style. Using a wordcloud, we are quickly able to visualize the top 30 most frequent words between all papers given. The size and color of each word indicates its frequency, where smaller/lighter words display less frequent words and larger/darker words display more frequent words. Using a blue color scheme, someone that is red-green colorblind-sensitive will be able to easily read the plot.
+
+Overall, the visualization in **#8** displays the same information in **#7**  but in a different style.
+
+For the visualization in **#9**, we are visualizing the dendrogram created by hierarchical clustering with complete linkage. The number of terms being clustered was reduced using a sparsity level of 0.25. With the dendrogram, we are able to visualize each cluster of words where each color represents a different cluster. 
+
+For the first cluster (left), there is one word which is *health* which may indicate this cluster refers to a broad overview of the paper which is that it's topic is related to health. 
+
+The next cluster there are two words *data* and *patients* which may indicate this cluster refers to how the research papers were written and their supporting evidence for conclusions.
+
+Lastly, the right-most cluster contains multiple words regarding to risk words, treatments, and other virus-specific information. This cluster may indicate that it represents words that related to the treatment, risk, and transmission of the coronavirus.
+
+Overall, the visualization in **#9** represents the word clusters using coloring/storytelling techniques.
+
+***
+
+**#00** The **designated submitter** should commit and push the file to their repo with the commit message "All Done".
