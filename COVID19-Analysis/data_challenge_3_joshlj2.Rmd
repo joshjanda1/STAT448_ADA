@@ -1,0 +1,429 @@
+---
+title: "STAT 448 - Data Challenge 3"
+author: "Josh Janda"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+    df_print: paged
+---
+
+# Understanding and Uncovering Potential Risk Factors for COVID-19
+
+## Abstract
+
+In this paper, I go into depth of understanding risk factors of Coronavirus and how to stop/prevent them using other Coronavirus research papers. This in-depth understanding will be accomplished by working with multiple text analysis procedures and tools to dig out important pieces of information written in these research papers. My goal is to understand how research potentially signified the chance of an outbreak and how to prevent and mitigate it.
+
+## Introduction
+
+At the end of 2019, a strain of the Coronavirus was identified when a large number of pneumonia cases broke out in Wuhan, China. Spreading rapidly, it quickly became a large issue in numerous other countries including the United States of America. Since then, this strain of Coronavirus, COVID-19, has been declared as a global pandemic by the World Health Organization. Actions have been taken throughout the world to limit the amount of death and transmission caused by COVID-19, including quarantining countries and states. On March 21, 2020, the governor of Illinois declared a statewide lockdown in order to prevent the spread of this virus.
+
+The effect of this virus throughout the world cannot truly be quantified. Thousands have died, schools have closed indefinitely, stores have been continuously wiped clean of supplies, and the economy is seeing significant downward trends that are nearing Great Depression territory.
+
+For this project, I want to take a deeper look into what we know from research of COVID-19 risk factors. There have been many studies done on Coronavirus risk factors, which gives us a large amount of research and data to look into. Understanding potential risk factors can largely help the mitigation of the spread and transmission of the virus, and therefore limit the deaths.
+
+Overall, utilizing different data analysis methods such as text classification, clustering, visualizations, and modeling, I am hoping to uncover data on risk factors of the virus to support the race to end this pandemic.
+
+
+## Analysis
+
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+library(jsonlite)
+library(doParallel)
+library(tm)
+library(qdap)
+library(wordcloud)
+library(dendextend)
+library(circlize)
+library(cluster)
+library(plotly)
+```
+
+```{r}
+data_path = 'F:/Machine Learning/Covid_19/noncomm_use_subset/'
+all_files = list.files(data_path, pattern = '.json')
+```
+
+```{r}
+strip_paper = function(file) {
+  
+  paper = fromJSON(paste(data_path, file, sep=''))
+  
+  body = rbind(paper$body_text$text)
+  ncol_body = ncol(body)
+  
+  body_text = tolower(unite(as.data.frame(body), "text",
+                    paste("V", seq(ncol_body), sep=''), sep = ' ')) #joins text and transforms to lowercase
+  keep = data.frame(doc_id = paper$paper_id,
+                    text = body_text, stringsAsFactors = FALSE)
+  keep = keep %>%
+    mutate(text = iconv(text, from = "latin1", to = "ASCII")) %>%
+    filter(!is.na(text)) # converts all latin 1 characters to ASCII, and any failures to convert
+                         # results in NA string. This will remove non-english words for the most part
+  keep
+  
+}
+```
+
+```{r}
+cl =  detectCores(logical = FALSE)
+registerDoParallel(cl)
+
+all_papers = foreach(file = all_files, .combine = 'rbind', .packages = c('tidyr', 'jsonlite', 'dplyr')) %dopar% {
+  
+  strip_paper(file)
+  
+}
+```
+
+The code above lists all files in the data path directory. This gives me a list of all files that end in “.json” in the directory given.
+The function strip_paper is created in order to extract the needed material from each JSON file. This function extracts the **paper_id** and **body_text**. The body text is created by uniting all rows of text found in the JSON file that are from the body of the paper, and then transforming all that text to lowercase. Afterwards, any text in the *latin1* character encoding is converted to *ASCII* character encoding. If the conversion cannot happen, the term is converted to *NA* which is then dropped. Altogether, we get a cleaned dataframe of the paper I.D. and it’s associated body text.
+
+Lastly, the data is read by using parallel processing. After the loop is completed, I am given a dataframe that is $nx2$ where n is the number of papers in english.
+
+With the papers read and partially processed, I can now continue the cleaning process using a volatile corpus.
+
+
+```{r}
+
+##used to clean text, remove common words, punctuation, and strip whitespace.
+clean_text = function(paper_df) {
+  
+  corpus = VCorpus(DataframeSource(paper_df))
+  corpus = tm_map(corpus, removeWords, stopwords('english'))
+  corpus = tm_map(corpus, removePunctuation)
+  corpus = tm_map(corpus, stripWhitespace)
+  corpus = tm_map(corpus, removeNumbers)
+  corpus
+  
+}
+
+cleaned_papers = clean_text(all_papers)
+```
+
+The function above converts the dataframe of all papers into a volatile corpus. A corpus is a collection of written texts, and a volatile corpus is a collection of written texts stored in memory that is destroyed when the R object is destroyed. This is useful as we do not want to save this collection permanently.
+
+With the function we:
+
+- Remove all common words in the English language
+- Remove all punctuation
+- Strip any whitespace
+- Remove all numbers (while numbers may seem important, they are not useful for my goal of understanding risks)
+
+With the text cleaned up, I can now begin the analysis.
+
+I believe the most important way to jump into this research is to really understand the affect of COVID-19 on the world. Let's begin by plotting the cases. For simplicity, I only am going to look at the top countries reported (USA, UK, Spain, Italy, and China).
+
+```{r}
+cases = read_csv('F:/Machine Learning/Covid_19/total-cases-covid-19.csv')
+
+top_countries = c("United Kingdom", "United States",
+                  "Italy", "Spain", "China")
+
+cases_top = cases %>% filter(Entity %in% top_countries) %>%
+  select(Entity, Date, total_cases = `Total confirmed cases of COVID-19 (cases)`)
+colnames(cases_top) = tolower(colnames(cases_top))
+
+cases_top$date = as.Date(cases_top$date, format = '%B %d, %Y')
+```
+
+```{r}
+options(scipen = 10)
+ggplot(cases_top, aes(x = date, y = total_cases, color = as.factor(entity))) +
+  geom_line(size = 2) +
+  scale_x_date(labels = scales::date_format('%B-%Y')) +
+  labs(x = 'Date', y = 'Total Cases',
+       color = 'Country', title = 'COVID-19 Cases over Time') +
+  theme(plot.title = element_text(hjust = 0.5),
+        panel.background = element_blank(),
+        axis.line = element_line(color = 'black')) -> caseplot
+
+caseplot = plotly_build(caseplot)
+
+caseplot$x$data[[1]]$text <- paste(" Date:", cases_top$date, "\n",
+                                   "Total Cases:", cases_top$total_cases, "\n",
+                                   "Country:", cases_top$entity)
+caseplot$x$data[[2]]$text <- paste(" Date:", cases_top$date, "\n",
+                                   "Total Cases:", cases_top$total_cases, "\n",
+                                   "Country:", cases_top$entity)
+caseplot$x$data[[3]]$text <- paste(" Date:", cases_top$date, "\n",
+                                   "Total Cases:", cases_top$total_cases, "\n",
+                                   "Country:", cases_top$entity)
+caseplot$x$data[[4]]$text <- paste(" Date:", cases_top$date, "\n",
+                                   "Total Cases:", cases_top$total_cases, "\n",
+                                   "Country:", cases_top$entity)
+caseplot$x$data[[5]]$text <- paste(" Date:", cases_top$date, "\n",
+                                   "Total Cases:", cases_top$total_cases, "\n",
+                                   "Country:", cases_top$entity)
+caseplot
+```
+
+We can see from the plot that even with current data, many countries are still seeing exponential growth in the number of total active cases. The goal is to "flatten" this growth as seen in China.
+
+With the total cases visualized, let's move on to the text analysis.
+
+```{r}
+tdm = TermDocumentMatrix(cleaned_papers, control=list(weighting=weightTf)) # converts to term document matrix using weights by term frequency
+tdm_paper_txt = as.matrix(tdm)
+```
+
+```{r}
+word_freq = data.frame(words=names(sort(rowSums(tdm_paper_txt),decreasing = TRUE)),
+                       freqs=sort(rowSums(tdm_paper_txt),decreasing = TRUE), row.names = NULL)
+
+ggplot(word_freq[1:30,], mapping = aes(x = reorder(words, freqs), y = freqs)) +
+  geom_bar(stat= "identity", fill=rgb(0/255,191/255,196/255)) +
+  geom_text(aes(label = freqs), size = 3, vjust = .3, hjust = 1.1) +
+  coord_flip() +
+  scale_colour_hue() +
+  labs(x= "Words", y = 'Frequency',
+       title = "30 Most Frequent Words") +
+  theme(plot.title = element_text(hjust = 0.5), panel.background = element_blank(),
+        axis.ticks.x = element_blank(),axis.ticks.y = element_blank())
+```
+
+The plot above displays to us the 30 most frequent words found in all papers. We can see that most of these words are mostly medical terms and coronavirus related terms. The most frequent word is *health* with 3,160 observations. This is understandable as the word *health* which has many different uses in medical terminology. In the case of our goal of understanding the risk factors of COVID-19, *health* most likely means the health of each individual patient in the research paper.
+
+Some words that stick out to me that can be related to risk factors of COVID-19 are *outbreak*, *public*, *disease*, and *infection*.
+
+**Outbreak** sticks out to me as it is already known that prior Coronaviruses have caused outbreaks, such as the SARS outbreak which "was first reported in Asia in February 2003" (2020, cdc.gov).
+
+**Public** sticks out to me as it is known that going out in public heavily increases your risk of being infected by COVID-19. In fact, there has been a "nationwide effort to slow the spread of COVID-19 through the implementation of social distancing at all levels of society" (2020, cdc.gov). On the State level, many states have implemented a "stay-at-home" order in order to reduce the number of people going in public. Many countries have also implemented "stay-at-home" orders to drastically slow the spread of COVID-19.
+
+**Disease** can be seen as a risk for COVID-19 as "people of any age who have serious underlying medical conditions might be at higher risk for severe illness from COVID-19" (2020, cdc.gov). While having a prior underlying medical condition such as a disease may not increase your risk of being infected by COVID-19, it severely increases your risk of death or harsh symptoms. With research supporting this idea, it can and has been heavily reported that those with underlying conditions should severely limit social contact.
+
+**Infection** can be seen as a risk for COVID-19. Tying in with social gatherings, infection is a huge risk due to the way COVID-19 is transmitted. Being in public makes you very susceptible to infection of COVID-19.
+
+Overall, this plot gives us a great idea of what most of these research papers are talking about regarding Coronavirus.
+
+```{r}
+wordcloud(word_freq$words,word_freq$freqs, min.freq = 1, max.words = 30,
+          colors=blues9, random.order = FALSE)
+```
+
+The plot above gives us the same information as the barplot, but in a different style. With the wordcloud we can see most frequent words by size of color darkness of each word.
+
+Next, I want to take a look at associated words with terms that I am most interested in. Since I am looking for research regarding risk of COVID-19, I want to look at association for key terms relating to risk. These terms are:
+
+- Risk
+- Transmission
+- Mitigation
+- Public/Social
+
+```{r}
+associations = findAssocs(tdm, 'risk', 0.11)
+
+associations = as.data.frame(associations) 
+associations$terms = row.names(associations)
+associations$terms = factor(associations$terms, levels=associations$terms)
+
+
+ggplot(associations[1:30,], aes(x = terms, y = risk)) +
+  geom_bar(stat = 'identity', fill = 'turquoise') +
+  geom_text(aes(label = risk), hjust = 2, size =3) +
+  theme(text=element_text(size=10),
+        panel.background = element_blank(),
+        plot.title = element_text(hjust = 0.5)) +
+  labs(y = "Association with Risk (correlation)",
+       x = 'Associated Term',
+       title = 'Top 30 Associated Terms with "Risk"') +
+  coord_flip()
+```
+
+The plot above gives us the top 30 terms associated with the term **Risk** in the research papers.
+
+The term with the highest association is *advised*. This is understandable as most research papers may be using the term *advised* near the term *risk* due to using their findings to advise on how to mitigate the risk of Coronavirus. 
+
+The next highest associated term is *postsars* which is interesting to me. Looking up this term resulted me in the following interesting research, which states that "[a]fter the SARS outbreak, Taiwan's Centers for Disease Control (Taiwan CDC) followed the WHO outbreak communication guidelines on trust, early announcements, transparency, informing the public, and planning, in order to reform its risk communication systems" (2020, ncbi.nlm.nih.gov). Globally, this term *postsars* can be seen as a direct association to risk in Coronavirus as researching on how to handle another pandemic after the 2003 SARS outbreak can drastically reduce how much the world is effected by another pandemic. Using similar, but improved, tactics of handling the SARS pandemic to control the COVID-19 pandemic can be deemed as a way to highly decrease the risk factors for most people.
+
+The next few highly associated terms are related to communication to the public. Keeping clear and transparent communication to the public which includes respected doctor opinions, advice, and messages can help highly mitigate the risk factors for COVID-19. This can be directly tied to the idea of "flattening the curve", in which the government and doctors are advising to stay inside to reduce the infection rates.
+
+Other interesting associated words are *airtime*, and *hoarding*. Knowing that *airtime* is a high risk factor of being infected by COVID-19 due to the long airborne time of the virus. Practicing social distance can help mitigate this risk. *Hoarding* is an interesting association to me as we have seen hoarding by many during this pandemic. To me, this can be understood as research finding that hoarding can actually increase the risk of being infected by the virus due to possible exposure while shopping or by preventing others to having needed supplies such as hand sanitizer.
+
+Next, I want to look at associations for the term **Transmission**
+
+```{r}
+associations = findAssocs(tdm, 'transmission', 0.11)
+
+associations = as.data.frame(associations) 
+associations$terms = row.names(associations)
+associations$terms = factor(associations$terms, levels=associations$terms)
+
+
+ggplot(associations[1:30,], aes(x = terms, y = transmission)) +
+  geom_bar(stat = 'identity', fill = 'turquoise') +
+  geom_text(aes(label = transmission), hjust = 2, size =3) +
+  theme(text=element_text(size=10),
+        panel.background = element_blank(),
+        plot.title = element_text(hjust = 0.5)) +
+  labs(y = "Association with Transmission (correlation)",
+       x = 'Associated Term',
+       title = 'Top 30 Associated Terms with "Transmission"') +
+  coord_flip()
+```
+
+The highest associated term with **Transmission** is *exposure* with an association of ~0.66. Research showing this correlation is expected, as it is obvious that transmission occurs through exposure to the virus. This can be said for other associated terms such as *contact* and *adventure*.
+
+Some very interesting associated terms are *animalexposed*, *livestock*, and *batrelated*. It is known that the COVID-19 strain of the Coronavirus originated from a wet market in Wuhan, China. Research has "suggest[ed] that an intermediate host was likely involved between bats and humans", which can help explain the association to *batrelated* (2020, sciencedaily.com). Knowing that research has shown that the virus can originate from animals, such as livestock or wild animals is disappointing as it can be said that this pandemic could have been prevented by directly stopping the sale of unsanity wild animals or livestock. Without sanitary conditions, exposure/transmission is highly increased. 
+
+Other associated terms somewhat related to antibiotics, such as *betalactamase*. Research has suggested that antibiotics can help limit the severity of Coronavirus symptons or the transmission of this virus according to this association.
+
+Next, I want to look at associations to the term *Mitigation*.
+
+```{r}
+associations = findAssocs(tdm, 'mitigation', 0.11)
+
+associations = as.data.frame(associations) 
+associations$terms = row.names(associations)
+associations$terms = factor(associations$terms, levels=associations$terms)
+
+
+ggplot(associations[1:30,], aes(x = terms, y = mitigation)) +
+  geom_bar(stat = 'identity', fill = 'turquoise') +
+  geom_text(aes(label = mitigation), hjust = 2, size =3) +
+  theme(text=element_text(size=10),
+        panel.background = element_blank(),
+        plot.title = element_text(hjust = 0.5)) +
+  labs(y = "Association with Mitigation (correlation)",
+       x = 'Associated Term',
+       title = 'Top 30 Associated Terms with "Mitigation"') +
+  coord_flip()
+```
+
+Looking at the associations above, there does not seem to be many understandable associations to the term **mitigation**. However, there are some.
+
+The term *crowd* can be seen that research indicating that limiting crowds can mitigate the risk/spread of Coronavirus. This has been implemented by social distancing and stay-at-home orders.
+
+The terms relating to food and water may suggest that research has shown that continuing to eat and drink water can help mitigate the symptoms of Coronavirus and their severity.
+
+The terms relating to weather (*rainfall* being the highest), may suggest that different weathers may result in different effects of the spread of Coronavirus. Possibly that rainfall/cold weather puts people at a higher risk of being infected by COVID-19 and hotter weather can lead to less risk.
+
+The last association I want to look into is for the term **Public**.
+
+```{r}
+associations = findAssocs(tdm, 'public', 0.11)
+
+associations = as.data.frame(associations) 
+associations$terms = row.names(associations)
+associations$terms = factor(associations$terms, levels=associations$terms)
+
+
+ggplot(associations[1:30,], aes(x = terms, y = public)) +
+  geom_bar(stat = 'identity', fill = 'turquoise') +
+  geom_text(aes(label = public), hjust = 2, size =3) +
+  theme(text=element_text(size=10),
+        panel.background = element_blank(),
+        plot.title = element_text(hjust = 0.5)) +
+  labs(y = "Association with Public (correlation)",
+       x = 'Associated Term',
+       title = 'Top 30 Associated Terms with "Public"') +
+  coord_flip()
+```
+
+Not suprisingly, the most associated terms with **Public** are related to governments and other authorities. This may be due to research suggesting that government/authority boards handling of the Coronavirus can directly be linked to the risk of infection. With proper handling, risk can drastically be increased for the average person. This can be seen through the "flatten the curve" ideation which has been implemented in numerous countries by governmental boards. 
+
+One interesting association is the term *distrust*. This term may suggest that research shows that public distrust may result in higher risk of Coronavirus. Having public distrust can result in citizens not following suggestions made by the government, which will directly lead to more infections and a longer pandemic.
+
+Another interesting term is *preparedness*. As seen throughout this COVID-19 pandemic, most governments were not prepared. In the United States alone, it can be strongly observed that both state governments and the Federal government were not prepared for an epidemic. This has directly resulted in rapid spread of the Coronavirus and an extensive number of deaths. With this association, research has possibly suggested that being prepared for this sort of event is important to quickly handle and reduce the outbreak.
+
+Overall, through these association plots we have looked at many terms that can be understood as potential research for risk factors of the Coronavirus and how to limit and handle them.
+
+Next up, I want to try and cluster the words to try and get further understanding of what the terms represent. For clustering, I will be utilizing hierarchical clustering with three clusters. The number of clusters has been chosen arbitrarily, as I want to try and split the text into three categories representing general overview, people, and direct risk factors.
+
+```{r}
+tdm2 = removeSparseTerms(tdm, sparse = .50)
+
+hc = hclust(dist(tdm2, method="euclidean"), method="complete")
+
+hcls = cutree(hc, k = 3)
+
+sil = silhouette(hcls, tdm2) #compute silhouette score for each term
+
+clusters = data.frame(terms = tdm2$dimnames$Terms,
+                      cluster = hcls,
+                      score = sil[, 3])
+clusters_sample = clusters %>% filter(cluster == 1) %>% sample_n(15)
+clusters_sample = rbind(clusters_sample,
+                        filter(clusters, cluster == 2),
+                        filter(clusters, cluster == 3))
+```
+
+```{r}
+#visualize random 15 terms from each cluster
+ggplot(clusters_sample, aes(x = terms, y = score, fill = score)) +
+  geom_bar(stat = 'identity') +
+  geom_text(aes(label = paste('C: ', cluster, '-', 'Score: ', round(score, 3))),
+                position=position_stack(vjust = 0.5)) +
+  coord_flip() +
+  labs(y = 'Silhouete Score', x = 'Terms',
+       fill = 'Score')
+```
+
+The output above plots the top 15 terms from cluster 1, and then the terms from clusters 2 and 3 and their respective silhouette score. The silhouette value is a measure of how similar an object is to its own cluster. A score close to -1 means the object is not very similar to its own cluster, while a score close to +1 means the object is very similar to its own cluster.
+
+We can see that for terms *patients* and *health* have a score of zero as they are the only terms in their cluster. We can also see that a lot of terms in cluster 1 are not very similar to other terms in the same cluster. This tells me that there is a possibility that more clusters are required. Let's go ahead and try different values of # of clusters to maximize average silhouette score. I also want to increase the number of available terms, so I will increase the sparsity to 0.75.
+
+```{r}
+tdm3 = removeSparseTerms(tdm, sparse = .75)
+
+scores = data.frame(k = rep(0, 4), mean_score = rep(0, 4))
+i = 1
+
+for (k in c(3, 4, 5, 6)) {
+  
+  hc = hclust(dist(tdm3, method="euclidean"), method="complete")
+  hcls = cutree(hc, k = k)
+  sil = as.data.frame(unclass(silhouette(hcls, tdm3))) # convert silhouette output to df
+  avg_score = sil %>% select(cluster, sil_width) %>%
+    summarise(avg_score = mean(sil_width))
+  scores$k[i] = k
+  scores$score[i] = as.numeric(avg_score)
+  i = i+1
+  
+}
+
+scores
+```
+
+Looking at the output above, we see that a cluster size of 3 is the optimal cluster size due to it having the highest mean silhouette score. Let's create this cluster and further visualize the terms inside.
+
+```{r}
+hc = hclust(dist(tdm2, method="euclidean"), method="complete")
+hcd = as.dendrogram(hc, horiz = TRUE)
+hcd = color_labels(hcd, 3,
+                   col = c('red', 'turquoise', 'mediumblue'))
+hcd = color_branches(hcd, 3, col = c('red', 'turquoise', 'mediumblue'))
+```
+```{r, fig.width = 10, fig.height = 8}
+par(mar=c(0, 0, 2, 8))
+plot(hcd, main = 'Body Text - Clustering Analysis',
+     type = "triangle", yaxt='n', horiz = TRUE)
+```
+
+The first cluster only contains the word *health*. This word is possibly clustered alone due to it being a general overview of Coronavirus research. All papers in the data are at least similar due to the research regarding the health of an individual. 
+
+The second cluster only contains the word *patients*. This word is possibly clustered alone due to it being a shared goal between all papers, which is to study patients in order to get a better understanding of Coronavirus.
+
+The third cluster contains multiple words such as *syndrome*, *infectious*, *reported*, and so on. While all of these words are not similar, as discovered by the silhouette scoring, this cluster can still be understood. The cluster might be seen as a grouping of terms that give an abstract of findings found in the research papers such as risk factors, symptoms caused by the virus, how it spreads and how people get infected, and what the virus is typically reported as. All of these terms indicate that the research papers in my data hold important information to help further understand risk factors of the virus to continue to prevent the spread and limit cases.
+
+With this clustering visualized, I wrap up the analysis on this text data.
+
+## Conclusion
+
+Through the analysis, a great deal of information regarding Coronavirus research has been learned and understood. The data has been processed and extracted for use in text analysis, and then put through multiple text analysis procedures such as frequency tables, associations, and clustering.
+
+For frequency, we learned important words regarding Coronavirus research shared most frequently between research papers. These words helped indicate their importance in the research, and potential linkage to learning and understanding more on risk factors of Coronavirus and specifically COVID-19.
+
+For associations, we directly looked into term associations for keywords relating to risk. These words were risk, transmission, mitigation, and public. Looking at the associations to these words, we were able to directly view how research has developed understanding of known risk factors and preventative measures for reducing the transmission of Coronavirus through multiple alleys such as social distancing and the prevention of wildlife sales.
+
+Lastly, for clustering we were able to get an idea of how the text between all papers relate to each other. After performing score validation, we ended up with three clusters being the best choice to split the text into. With these three clusters, we could further try and pinpoint the meaning of each cluster through the words included.
+
+Overall, Coronavirus research has pinpointed a large amount of information directly applicable to COVID-19 as we have uncovered direct known risk factors. With further analysis, there is more to discover that can possibly help reduce risk and transmission.
+
+Sources:
+
+- https://www.cdc.gov/sars/about/fs-sars.html
+- https://www.cdc.gov/coronavirus/2019-ncov/cases-updates/summary.html
+- https://www.cdc.gov/coronavirus/2019-ncov/need-extra-precautions/people-at-higher-risk.html
+- https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5404243/
+- https://www.sciencedaily.com/releases/2020/03/200317175442.htm
